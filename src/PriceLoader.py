@@ -68,7 +68,7 @@ class PriceLoader:
 
     
 if __name__ == "__main__":
-    loader = PriceLoader("2005-01-01", "2025-01-01", "data/")
+    loader = PriceLoader("2005-01-01", "2025-01-01", "../data/")
     tickers = loader.fetch_sp500_tickers()
     print(len(tickers), tickers[:10])
     # loader.batch_download(tickers=tickers)
