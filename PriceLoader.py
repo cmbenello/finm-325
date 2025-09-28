@@ -61,14 +61,15 @@ class PriceLoader:
             time.sleep(pause)
         
     
-    #Batch reads a ticker within a window 
-    def read_ticker(self, ticker, start_time, end_time):
+    #Reads a ticker 
+    def read_ticker(self, ticker):
         file = self.output_dir / f"{ticker}.parquet"
-        return []
+        return pd.read_parquet(file, engine = "pyarrow")
 
     
 if __name__ == "__main__":
     loader = PriceLoader("2005-01-01", "2025-01-01", "data/")
     tickers = loader.fetch_sp500_tickers()
     print(len(tickers), tickers[:10])
-    loader.batch_download(tickers=tickers)
+    # loader.batch_download(tickers=tickers)
+    print(loader.read_ticker("AAPL"))
