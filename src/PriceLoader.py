@@ -73,3 +73,8 @@ if __name__ == "__main__":
     print(len(tickers), tickers[:10])
     # loader.batch_download(tickers=tickers)
     print(loader.read_ticker("AAPL"))
+
+
+
+
+pain
