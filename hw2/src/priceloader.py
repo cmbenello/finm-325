@@ -1,10 +1,12 @@
 import time
 from pathlib import Path
 from typing import List, Optional, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import requests
 import yfinance as yf
+import os
 
 class PriceLoader:
     def __init__(self, start_time: str, end_time: str, output_dir: str):
@@ -12,6 +14,7 @@ class PriceLoader:
         self.end_time = end_time
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
 
     def fetch_sp500_tickers(self) -> List[str]:
         """Return the current S&P 500 ticker symbols as listed today."""
@@ -66,15 +69,65 @@ class PriceLoader:
         file = self.output_dir / f"{ticker}.parquet"
         return pd.read_parquet(file, engine = "pyarrow")
 
+    # Batch read the close columns
+    def batch_read_close(self, max_workers: int = 8, join: str = "outer") -> pd.DataFrame:
+        def read_close(path: Path) -> pd.Series:
+            df = pd.read_parquet(path, engine="pyarrow")
+            if "Date" not in df.columns:
+                raise ValueError(f"No 'Date' column found in {path}")
+            df["Date"] = pd.to_datetime(df["Date"])
+            df = df.set_index("Date").sort_index()
+            col = "Close"
+            s = df[col].rename(path.stem)
+            return s
+
+        paths = list(self.output_dir.glob("*.parquet"))
+        if not paths:
+            raise FileNotFoundError(f"No parquet files found in {self.output_dir}")
+
+        series_list = []
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futs = {ex.submit(read_close, p): p for p in paths}
+            for fut in as_completed(futs):
+                try:
+                    series_list.append(fut.result())
+                except Exception as e:
+                    print(f"Failed to read {futs[fut].name}: {e}")
+
+        df = pd.concat(series_list, axis=1, join=join).sort_index()
+        return df
     
+    # Batch read the volume columns
+    def batch_read_volume(self, max_workers: int = 8, join: str = "outer") -> pd.DataFrame:
+        def read_volume(path: Path) -> pd.Series:
+            df = pd.read_parquet(path, engine="pyarrow")
+            if "Date" not in df.columns:
+                raise ValueError(f"No 'Date' column found in {path}")
+            df["Date"] = pd.to_datetime(df["Date"])
+            df = df.set_index("Date").sort_index()
+            if "Volume" not in df.columns:
+                raise ValueError(f"No 'Volume' column found in {path}")
+            return df["Volume"].rename(path.stem)
+
+        paths = list(self.output_dir.glob("*.parquet"))
+        if not paths:
+            raise FileNotFoundError(f"No parquet files found in {self.output_dir}")
+
+        series_list = []
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futs = {ex.submit(read_volume, p): p for p in paths}
+            for fut in as_completed(futs):
+                try:
+                    series_list.append(fut.result())
+                except Exception as e:
+                    print(f"Failed to read {futs[fut].name}: {e}")
+
+        df = pd.concat(series_list, axis=1, join=join).sort_index()
+        return df
+
 if __name__ == "__main__":
     loader = PriceLoader("2005-01-01", "2025-01-01", "../data/")
     tickers = loader.fetch_sp500_tickers()
     print(len(tickers), tickers[:10])
     # loader.batch_download(tickers=tickers)
     print(loader.read_ticker("AAPL"))
-
-
-
-
-pain

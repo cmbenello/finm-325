@@ -1,4 +1,4 @@
-from src.strategy import Strategy
+from strategy import Strategy
 import pandas as pd
 import numpy as np
 
@@ -12,7 +12,7 @@ class MovingAverageStrategy(Strategy):
 
 
     def generate_signals(self, prices: pd.DataFrame) -> pd.DataFrame:
-        ma_fast = prices.rolling(self.short_window, min_periods=self.long_window).mean()
+        ma_fast = prices.rolling(self.short_window, min_periods=self.short_window).mean()
         ma_slow = prices.rolling(self.long_window,  min_periods=self.long_window).mean()
 
         was_above = ma_fast.shift(1) > ma_slow.shift(1)

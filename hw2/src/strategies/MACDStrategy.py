@@ -1,11 +1,11 @@
-from src.strategy import Strategy
+from strategy import Strategy
 import pandas as pd
 import numpy as np
 
 
-class MovingAverageStrategy(Strategy):
+class MACDStrategy(Strategy):
     def __init__(self, fast: int, slow: int, sig: int):
-        if slow >= fast:
+        if slow < fast:
             raise ValueError("fast must be < slow")
         self.fast = fast
         self.slow = slow
