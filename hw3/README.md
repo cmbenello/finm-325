@@ -1,0 +1,1 @@
+To run the profiling do python3 -m src.profiler from the root and the tests do pytest -q
