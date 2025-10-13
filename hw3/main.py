@@ -1,46 +1,57 @@
-from src.data_loader import load_data, create_market_data_points
-from src.models import Portfolio, PortfolioLog
-from src.engine import ExecutionEngine
-from src.strategies import NaiveMovingAverageStrategy, WindowedMovingAverageStrategy
-from src.reporting import PerformanceAnalyzer
+# main.py
+from __future__ import annotations
 
-# Load generated data
-data = create_market_data_points(load_data('data/assignment3_market_data.csv'))
+from pathlib import Path
+from typing import Iterable, List
 
-print("created market data points")
-# Initialize 2 portfolios
-mean_rev_portfolio: PortfolioLog = []
-NaiveMovingAverageStrategy_portfolio: PortfolioLog = []
-failures_mean_rev_portfolio: PortfolioLog = []
-failures_NaiveMovingAverageStrategy_portfolio: PortfolioLog = []
+from src.profiler import (
+    load_market_data,
+    default_strategy_configs,
+    profile_multiple,
+)
+from src.reporting import (
+    results_to_dataframe,
+    save_results_csv,
+    plot_scaling,
+    generate_complexity_report,
+)
 
-# Run 2 strategies for each tick
-NaiveMovingAverageStrategy_engine = ExecutionEngine(strat=NaiveMovingAverageStrategy(
-    short_window=20, long_window=50
-), portfolio=Portfolio())
+def main(
+    data_path: str = "data/assignment3_market_data.csv",
+    sizes: Iterable[int] = (1_000, 10_000, 100_000),
+    repeat: int = 3,
+    profile_dir: str | Path = "artifacts/profiles",
+    report_dir: str | Path = "reports",
+) -> None:
+    ticks = load_market_data(data_path)
+    if not ticks:
+        raise RuntimeError(f"No rows found in {data_path}")
 
-mean_rev_engine = ExecutionEngine(strat=WindowedMovingAverageStrategy(
-    short_window=20, long_window=50),
-    portfolio=Portfolio())
-NaiveMovingAverageStrategy_engine.run_strategy(data, NaiveMovingAverageStrategy_portfolio)
-print("finished with naive strategy")
-mean_rev_engine.run_strategy(data, mean_rev_portfolio)
-print("finished with windowed strategy")
+    strategies = default_strategy_configs()
+    results = profile_multiple(
+        data=ticks,
+        strategies=strategies,
+        sizes=sizes,
+        repeat=repeat,
+        profile_dir=profile_dir,
+    )
 
+    df = results_to_dataframe(results)
+    csv_path = save_results_csv(df, report_dir)
+    rt_plot, mem_plot = plot_scaling(df, report_dir)
+    report_path = generate_complexity_report(
+        df=df,
+        strategies=strategies,
+        runtime_plot=rt_plot,
+        memory_plot=mem_plot,
+        outdir=report_dir,
+        filename="complexity_report.md",
+    )
 
-# Call performance reporting on each model's portfolio history
-# perf_analyzer = PerformanceAnalyzer()
-# perf_analyzer.generate_performance_report(mean_rev_portfolio, strategy_name="Mean reversion",
-#                                           chart_name="mean_rev_chart.png",
-#                                           report_name="mean_rev_report.md")
-# perf_analyzer.generate_performance_report(NaiveMovingAverageStrategy_portfolio, strategy_name="NaiveMovingAverageStrategy",
-#                                           chart_name="NaiveMovingAverageStrategy_chart.png",
-#                                           report_name="NaiveMovingAverageStrategy_report.md")
-# perf_analyzer.generate_performance_report(failures_mean_rev_portfolio, strategy_name="Mean reversion with simulated failures",
-#                                           chart_name="failures_mean_rev_chart.png",
-#                                           report_name="failures_mean_rev_report.md")
-# perf_analyzer.generate_performance_report(failures_NaiveMovingAverageStrategy_portfolio, strategy_name="NaiveMovingAverageStrategy with simulated failures",
-#                                           chart_name="failures_NaiveMovingAverageStrategy_chart.png",
-#                                           report_name="failures_NaiveMovingAverageStrategy_report.md")
+    print(f"[report] saved CSV: {csv_path}")
+    print(f"[report] saved runtime plot: {rt_plot}")
+    print(f"[report] saved memory plot: {mem_plot}")
+    print(f"[report] saved markdown: {report_path}")
 
-# Save images in the `img` directory
+if __name__ == "__main__":
+    main()

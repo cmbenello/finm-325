@@ -1,174 +1,150 @@
-import math
-import statistics
+from __future__ import annotations
+
+from pathlib import Path
 from typing import List
+import pandas as pd
 import matplotlib.pyplot as plt
-from src.models import PortfolioSnapshot
 
 
-class PerformanceAnalyzer:
-    def __init__(self, risk_free_rate: float = 0.0366):
-        #This is the current 1-year U.S. Treasury rate
-        self.risk_free_rate = risk_free_rate
-    
-    
-    def _calculate_total_return(self, initial_value: float, final_value: float) -> float:
-        if initial_value <= 0:
-            return 0.0
-        return (final_value - initial_value) / initial_value
+def results_to_dataframe(results) -> pd.DataFrame:
+    rows = []
+    for r in results:
+        rows.append({
+            "strategy": r.strategy_name,
+            "N": r.num_ticks,
+            "runtime_best_sec": r.runtime_best,
+            "runtime_avg_sec": r.runtime_avg,
+            "memory_peak_MiB": r.memory_peak_mb,
+        })
+    df = pd.DataFrame(rows).sort_values(["strategy", "N"]).reset_index(drop=True)
+    return df
 
 
-    def _calculate_returns(self, portfolio_values: List[PortfolioSnapshot]) -> List[float]:
-        if len(portfolio_values) < 2:
-            return []
-        
-        returns = []
-        for i in range(1, len(portfolio_values)):
-            prev_value = portfolio_values[i-1].portfolio_value
-            curr_value = portfolio_values[i].portfolio_value
-            
-            if prev_value > 0:
-                period_return = (curr_value - prev_value) / prev_value
-                returns.append(period_return)
-        
-        return returns
-    
-
-    def _calculate_sharpe_ratio(self, returns: List[float], portfolio_values: List[PortfolioSnapshot]) -> float:
-        if not returns or len(returns) < 2:
-            return 0.0
-
-        initial_value = portfolio_values[0].portfolio_value
-        final_value = portfolio_values[-1].portfolio_value
-        mean_return = self._calculate_total_return(initial_value=initial_value, final_value=final_value)
-        std_return = statistics.stdev(returns) if len(returns) > 1 else 0.0
-
-        if std_return == 0:
-            return 0.0
-
-        # Treat each period as a daily return, then annualize Sharpe ratio
-        daily_risk_free_rate = self.risk_free_rate / 252
-        daily_sharpe = (mean_return - daily_risk_free_rate) / std_return
-        annualized_sharpe = daily_sharpe * math.sqrt(252)
-        
-        return annualized_sharpe
-
-    
-    
-    def _calculate_maximum_drawdown(self, portfolio_values: List[PortfolioSnapshot]) -> float:
-        if not portfolio_values:
-            return 0.0
-        
-        values = [pv.portfolio_value for pv in portfolio_values]
-        peak = values[0]
-        max_dd = 0.0
-        
-        for value in values:
-            if value > peak:
-                peak = value
-            else:
-                drawdown = (peak - value) / peak
-                if drawdown > max_dd:
-                    max_dd = drawdown
-        
-        return max_dd
-    
-
-    def _plot_portfolio_value(self, portfolio_values: List[PortfolioSnapshot], 
-                        strategy_name: str = "Strategy",
-                        save_path: str = None) -> None:
-    
-        if not portfolio_values:
-            print("No portfolio data to plot")
-            return
-    
-        # Extract data
-        timestamps = [pv.timestamp for pv in portfolio_values]
-        values = [pv.portfolio_value for pv in portfolio_values]
-    
-        # Create the plot
-        plt.figure(figsize=(12, 6))
-        plt.plot(timestamps, values, 'b-', linewidth=2, label='Portfolio Value')
-     
-        # Customize the plot
-        plt.title(strategy_name + " Portfolio Value Over Time", fontsize=14, fontweight='bold')
-        plt.xlabel('Time', fontsize=12)
-        plt.ylabel('Portfolio Value ($)', fontsize=12)
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-    
-        # Format x-axis
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-    
-        # Save if path provided
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Plot saved to: {save_path}")
-    
-
-    def generate_performance_report(self, portfolio_values: List[PortfolioSnapshot], 
-                                  strategy_name: str = "Strategy",
-                                  output_path: str = './outputs/',
-                                  chart_name: str = None,
-                                  report_name: str = None) -> str:
-
-        # Generate custom paths based on strategy name
-        safe_strategy_name = strategy_name.lower().replace(' ', '_').replace('-', '_')
-        if chart_name is None:
-            chart_name = f"{output_path}{safe_strategy_name}_equity_chart.png"
-        if report_name is None:
-            report_name = f"{output_path}{safe_strategy_name}_performance_report.md"
-
-        # Calculate all metrics
-        initial_value = portfolio_values[0].portfolio_value
-        final_value = portfolio_values[-1].portfolio_value
-        total_return = self._calculate_total_return(initial_value, final_value)
-        
-        returns = self._calculate_returns(portfolio_values)
-        sharpe_ratio = self._calculate_sharpe_ratio(returns, portfolio_values)
-        max_drawdown = self._calculate_maximum_drawdown(portfolio_values)
-        
-        # Generate the chart
-        self._plot_portfolio_value(portfolio_values, strategy_name, output_path + chart_name)
-            
-        # Generate the markdown content
-        markdown_content = f"""# {strategy_name} - Performance Analysis Report
-
-## Key Metrics
-
-| Metric                | Value      |
-|-----------------------|------------|
-| Total Return          | {total_return:.2%}      |
-| Sharpe Ratio          | {sharpe_ratio:.3f}      |
-| Maximum Drawdown      | {max_drawdown:.2%}      |
+def save_results_csv(df: pd.DataFrame, outdir: Path | str = "reports") -> Path:
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    path = outdir / "benchmarks.csv"
+    df.to_csv(path, index=False)
+    return path
 
 
+def plot_scaling(df: pd.DataFrame, outdir: Path | str = "reports") -> tuple[Path, Path]:
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
 
----
+    rt_path = outdir / "runtime_vs_n.png"
+    plt.figure()
+    for name, sub in df.groupby("strategy"):
+        sub = sub.sort_values("N")
+        plt.plot(sub["N"], sub["runtime_best_sec"], marker="o", label=name)
+    plt.xlabel("ticks (N)")
+    plt.ylabel("runtime_best (sec)")
+    plt.title("Runtime vs N")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(rt_path, dpi=160)
+    plt.close()
 
-## Equity Curve
+    mem_path = outdir / "memory_vs_n.png"
+    plt.figure()
+    for name, sub in df.groupby("strategy"):
+        sub = sub.sort_values("N")
+        plt.plot(sub["N"], sub["memory_peak_MiB"], marker="o", label=name)
+    plt.xlabel("ticks (N)")
+    plt.ylabel("peak memory (MiB)")
+    plt.title("Peak Memory vs N")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(mem_path, dpi=160)
+    plt.close()
 
-Below is the equity curve for the strategy showing portfolio performance over time.
-
-![Equity Curve]({chart_name})
+    return rt_path, mem_path
 
 
-## Narrative Interpretation of Results
+def generate_complexity_report(
+    df: pd.DataFrame,
+    strategies,
+    runtime_plot: Path,
+    memory_plot: Path,
+    outdir: Path | str = "reports",
+    filename: str = "complexity_report.md",
+) -> Path:
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    path = outdir / filename
 
-The performance can be evaluated by examining the key metrics above. A total return of {total_return:.2%} indicates that the strategy {'was able to generate profits' if total_return > 0 else 'resulted in losses'} over the backtest period. The Sharpe ratio of {sharpe_ratio:.3f} measures the risk-adjusted return, with {'higher' if sharpe_ratio > 1 else 'lower'} values indicating {'better' if sharpe_ratio > 1 else 'poorer'} risk-reward tradeoffs. The maximum drawdown of {max_drawdown:.2%} highlights the largest observed loss from a peak to a trough, which is important for understanding potential downside risk.
+    complexity_md = _complexity_table(strategies)
+    rt_table = _metrics_table(df, ["runtime_best_sec", "runtime_avg_sec"])
+    mem_table = _metrics_table(df, ["memory_peak_MiB"])
+    narrative = _compute_narrative(df)
 
-In addition to these metrics, the strategy executed {len(portfolio_values)} data points over the backtest period. The equity curve above visually represents the growth of the portfolio over time, allowing for an assessment of the consistency and smoothness of returns.
+    content = f"""# Complexity and Performance Report
 
-Overall, interpreting these results involves balancing return and risk: a strategy with {'strong' if total_return > 0.1 else 'modest' if total_return > 0 else 'poor'} returns, a {'high' if sharpe_ratio > 1 else 'moderate' if sharpe_ratio > 0.5 else 'low'} Sharpe ratio, and {'manageable' if max_drawdown < 0.1 else 'significant'} drawdowns is generally considered {'robust' if sharpe_ratio > 0 else 'poor'}. However, it is also important to consider the market conditions during the backtest period when drawing conclusions about the strategy's effectiveness.
+## Complexity Annotations
+{complexity_md}
+
+## Runtime Metrics
+{rt_table}
+
+## Memory Metrics
+{mem_table}
+
+## Plots
+![Runtime vs N]({runtime_plot.name})
+![Peak Memory vs N]({memory_plot.name})
+
+## Narrative
+{narrative}
 """
-        
-        # Save the markdown file if output_path is provided
-        if output_path:
-            with open(output_path+report_name, 'w') as f:
-                f.write(markdown_content)
-            print(f"Performance report saved to: {output_path}")
-        
-        return markdown_content
+    path.write_text(content)
+    return path
 
 
 
+def _complexity_table(strategies) -> str:
+    lines = ["| Strategy | Complexity |", "|---|---|"]
+    for s in strategies:
+        lines.append(f"| {s.name} | {s.complexity} |")
+    return "\n".join(lines)
+
+
+def _metrics_table(df: pd.DataFrame, value_cols: list[str]) -> str:
+    cols = ["strategy", "N"] + value_cols
+    sub = df[cols].copy().sort_values(["strategy", "N"])
+    header = "|" + "|".join(cols) + "|"
+    sep = "|" + "|".join("---" for _ in cols) + "|"
+    lines = [header, sep]
+    for _, row in sub.iterrows():
+        lines.append("|" + "|".join(str(row[c]) for c in cols) + "|")
+    return "\n".join(lines)
+
+
+def _compute_narrative(df: pd.DataFrame) -> str:
+    if df.empty:
+        return "No results to compare."
+    largest = int(df["N"].max())
+    atN = df[df["N"] == largest]
+
+    def get(name, col):
+        s = atN[atN["strategy"] == name]
+        return None if s.empty else float(s.iloc[0][col])
+
+    naive_rt = get("NaiveMovingAverageStrategy", "runtime_best_sec")
+    opt_rt = get("NaiveMovingAverageStrategyOptimized", "runtime_best_sec")
+    win_rt = get("WindowedMovingAverageStrategy", "runtime_best_sec")
+
+    naive_mem = get("NaiveMovingAverageStrategy", "memory_peak_MiB")
+    opt_mem = get("NaiveMovingAverageStrategyOptimized", "memory_peak_MiB")
+    win_mem = get("WindowedMovingAverageStrategy", "memory_peak_MiB")
+
+    lines = [f"Comparison at N = {largest}"]
+    if naive_rt and opt_rt:
+        lines.append(f"- Optimized vs Naive runtime: x{naive_rt/opt_rt:.2f} faster (best).")
+    if naive_rt and win_rt:
+        lines.append(f"- Windowed vs Naive runtime: x{naive_rt/win_rt:.2f} faster (best).")
+    if naive_mem and opt_mem and naive_mem > 0:
+        lines.append(f"- Optimized memory vs Naive: {(100*(naive_mem-opt_mem)/naive_mem):.1f}% lower (peak).")
+    if naive_mem and win_mem and naive_mem > 0:
+        lines.append(f"- Windowed memory vs Naive: {(100*(naive_mem-win_mem)/naive_mem):.1f}% lower (peak).")
+    lines.append("- Scaling: optimized/windowed ~O(1) per tick; naive grows with long_window.")
+    return "\n".join(lines)
