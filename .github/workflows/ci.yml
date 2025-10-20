@@ -2,9 +2,16 @@
 name: CI Pipeline
 
 on:
-  push:    
+  push:
+    paths:
+      - 'hw5/backtester/**'
+      - 'hw5/tests/**'
+      - '.github/workflows/ci.yml'
   pull_request:
-  workflow_dispatch:  
+    paths:
+      - 'hw5/backtester/**'
+      - 'hw5/tests/**'
+      - '.github/workflows/ci.yml'
 
 jobs:
   test:
