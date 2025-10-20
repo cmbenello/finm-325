@@ -6,29 +6,22 @@ class Backtester:
         self.broker = broker
 
     def run(self, prices: pd.Series) -> float:
-        # Normalize/validate prices
         prices = pd.Series(prices, copy=False).astype(float)
         if prices.empty:
             return float(self.broker.cash)
 
-        sig = self.strategy.signals(prices)
+        sig = self.strategy.signals(prices).fillna(0)
 
-        prev_sig = sig.shift(1).fillna(0)
+        # t-1 signal drives a trade at t
+        for t in range(1, len(prices)):
+            prev = int(sig.iloc[t - 1])
+            px = float(prices.iloc[t])
 
-        for t in range(len(prices)):
-            s = int(prev_sig.iloc[t])
-            p = float(prices.iloc[t])
+            if prev == 1 and self.broker.position == 0:
+                self.broker.market_order("BUY", 1, px)
+            elif prev == -1 and self.broker.position > 0:
+                self.broker.market_order("SELL", 1, px)
+            # prev == 0 -> no action
 
-            if s > 0:
-                # if flat, buy 1
-                if self.broker.position == 0:
-                    self.broker.market_order("BUY", 1, p)
-            else:
-                # if long, sell 1
-                if self.broker.position > 0:
-                    self.broker.market_order("SELL", 1, p)
-
-        # Final mark-to-market equity
-        last_price = float(prices.iloc[-1])
-        equity = float(self.broker.cash + self.broker.position * last_price)
-        return equity
+        last = float(prices.iloc[-1])
+        return float(self.broker.cash + self.broker.position * last)
