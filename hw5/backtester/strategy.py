@@ -29,7 +29,11 @@ class VolatilityBreakoutStrategy:
 
         # Warmup -> 0, first return is NaN -> 0
         sig = sig.fillna(0).rename("signal")
+
         # Ensure same length as prices
         if len(sig) != len(s):
-            sig = sig.reindex_like(s, fill_value=0)
+            # reindex to s.index and fill missing with 0
+            sig = sig.reindex(s.index, fill_value=0).astype(int)
+            sig.name = "signal"
+
         return sig
