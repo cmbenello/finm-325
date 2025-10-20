@@ -1,21 +1,23 @@
 # .github/workflows/ci.yml
-name: CI Pipeline
+name: CI Pipeline (hw5 only)
 
 on:
   push:
     paths:
-      - 'hw5/backtester/**'
-      - 'hw5/tests/**'
-      - '.github/workflows/ci.yml'
+      - 'hw5/**'                 
+      - '.github/workflows/**'   
   pull_request:
     paths:
-      - 'hw5/backtester/**'
-      - 'hw5/tests/**'
-      - '.github/workflows/ci.yml'
+      - 'hw5/**'
+      - '.github/workflows/**'
+  workflow_dispatch:             
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hw5  
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

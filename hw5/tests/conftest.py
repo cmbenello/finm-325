@@ -1,6 +1,6 @@
 import numpy as np, pandas as pd, pytest
-from backtester.strategy import VolatilityBreakoutStrategy
-from backtester.broker import Broker
+from hw5.backtester.strategy import VolatilityBreakoutStrategy
+from hw5.backtester.broker import Broker
 
 @pytest.fixture
 def prices():
