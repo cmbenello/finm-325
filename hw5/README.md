@@ -1,73 +1,42 @@
-# Assigment 5: Testing & CI in Financial Engineering
+# Assignment 5: Testing and Continuous Integration in Financial Engineering
 
-- **Duration:** ~5–6 hours
-- **Focus:** Unit tests, coverage, and CI for a minimal daily-bar backtester (PnL is *not* the goal—engineering discipline is).
+## Project Overview
 
----
+This project implements a minimal daily-bar backtester for financial strategies, focusing on engineering discipline through unit testing, coverage measurement, and continuous integration (CI). The backtester includes components for price loading, strategy signal generation, order execution via a broker, and an engine to run the backtest. The primary goal is to develop reliable, testable code with high coverage rather than maximizing trading performance.
 
-## 🎯 Learning Objectives
+## Design Notes
 
-* Design testable components (data loader, strategy, broker, backtester).
-* Write focused unit tests with `pytest`, fixtures, and mocks.
-* Measure and enforce coverage (target ≥90%) and keep tests fast.
-* Wire up GitHub Actions to run tests + coverage on every push/PR.
+- **PriceLoader:** Returns synthetic `pandas.Series` price data for a single symbol to ensure deterministic tests without network dependencies.
+- **VolatilityBreakoutStrategy:** Generates daily signals based on a rolling standard deviation of returns. Buys when the current return exceeds the x-day volatility threshold.
+- **Broker:** Processes market orders without slippage or fees, updates cash and position, and enforces constraints such as sufficient cash or shares.
+- **Backtester Engine:** Runs an end-of-day loop that computes signals with a one-day lag, executes trades at close prices, and tracks portfolio equity over time.
 
----
+Tests are designed to be fast (<60 seconds), deterministic, and isolated from external systems by using mocks and synthetic data. Coverage is enforced to be ≥90% to ensure thorough testing.
 
-## 📘 What You’ll Build
+## Running Tests
 
-A tiny daily backtester with:
+To run the tests locally, use:
 
-* **PriceLoader:** returns a `pandas.Series` of prices for a single symbol (use synthetic data for tests).
-* **Strategy:** outputs daily signals (`-1, 0, +1` or booleans) from price history.
-* **Broker:** accepts market orders, updates cash/position with no slippage/fees (keep deterministic for tests).
-* **Backtester:** runs end-of-day loop: compute signal (t−1), trade at close (t), track cash/position/equity.
-
-> You’ll implement **one simple strategy** (e.g., *VolatilityBreakoutStrategy*).
-> This strategy calculates a rolling x-day standard deviation of returns and buys when 
-> the current return is > this x-day figure.
-> 
-> The assignment is graded on **tests + CI**, not alpha.
-
----
-
-## ⚙️ Constraints
-
-* Tests must **not** hit the network or external APIs — *mock or generate data.*
-* Test suite must complete in **< 60 seconds** on GitHub Actions.
-* Coverage **fails CI** if `< 90%` (branches optional, lines required).
-
----
-
-## 🗂️ Repository Layout (Suggested)
-
-```
-trading-ci-lab/
-  backtester/
-    __init__.py
-    price_loader.py
-    strategy.py
-    broker.py
-    engine.py
-  tests/
-    test_strategy.py
-    test_broker.py
-    test_engine.py
-    conftest.py
-  requirements.txt
-  pyproject.toml        # or setup.cfg for pytest/coverage options
-  .github/workflows/ci.yml
-  README.md
+```bash
+pip install -r requirements.txt
+pytest -q
 ```
 
----
+For coverage measurement and reporting:
 
-## 🧩 Part 1 — CI Wiring (30–45 min)
+```bash
+coverage run -m pytest -q
+coverage report -m --fail-under=90
+coverage html  # optional, generates an HTML coverage report in htmlcov/
+```
 
-Create a GitHub repo and add workflow:
+Tests cover strategy logic, broker behavior, engine execution, edge cases (empty data, NaNs, short series), and failure handling through mocks.
+
+## Continuous Integration Workflow
+
+The project uses GitHub Actions for CI with the following workflow configuration (`.github/workflows/ci.yml`):
 
 ```yaml
-# .github/workflows/ci.yml
 name: CI Pipeline
 on: [push, pull_request]
 jobs:
@@ -83,191 +52,12 @@ jobs:
       - run: coverage report --fail-under=90
 ```
 
-### requirements.txt (minimum)
+This pipeline runs tests and enforces coverage thresholds on every push and pull request, ensuring code quality and preventing regressions.
 
-```
-pytest
-coverage
-pandas
-numpy
-```
+## Coverage Summary
 
-> 💡 *Tip:* Add a coverage badge locally with `coverage-badge` (optional).
+- Target coverage: ≥90% lines covered (branch coverage optional)
+- Coverage failures cause CI to fail, maintaining high test quality
+- Coverage badges can be added for visualization (optional)
 
----
-
-## 🧩 Part 2 — Minimal Components (45–60 min)
-
-Implement only what you need to support tests:
-
-```python
-# backtester/strategy.py
-import numpy as np
-import pandas as pd
-
-class VolatilityBreakoutStrategy:
-    
-    def __init__(self):
-        pass
-
-    def signals(self, prices: pd.Series) -> pd.Series:
-        pass
-```
-
-```python
-# backtester/broker.py
-class Broker:
-    def __init__(self, cash: float = 1_000_000):
-        self.cash = cash
-        self.position = 0
-
-    def market_order(self, side: str, qty: int, price: float):
-        pass
-```
-
-```python
-# backtester/engine.py
-import pandas as pd
-
-class Backtester:
-    def __init__(self, strategy, broker):
-        self.strategy = strategy
-        self.broker = broker
-
-    def run(self, prices: pd.Series):
-        pass
-```
-
----
-
-## 🧩 Part 3 — Tests, Fixtures, and Mocks (2–3 hours)
-
-Write **focused** tests. Keep them deterministic and fast.
-
-### Required Tests
-
-* **Strategy logic:** signal generation of x-day volatility breakout.
-* **Broker behavior:** buy/sell adjusts cash/position correctly, rejects bad inputs, raises on insufficient cash/shares.
-* **Engine loop:** executes trades; final equity matches cash + pos×price.
-* **Edge cases:** empty series, constant price series, NaNs at head, very short series.
-* **Failure handling:** demonstrate one mocked failure path (e.g., broker raising) and assert it propagates/logs as expected.
-
----
-
-### Example Fixtures & Mocks
-
-```python
-# tests/conftest.py
-import numpy as np, pandas as pd, pytest
-from backtester.strategy import VolatilityBreakoutStrategy
-from backtester.broker import Broker
-
-@pytest.fixture
-def prices():
-    # deterministic rising series
-    return pd.Series(np.linspace(100, 120, 200))
-
-@pytest.fixture
-def strategy():
-    return VolatilityBreakoutStrategy()
-
-@pytest.fixture
-def broker():
-    return Broker(cash=1_000)
-```
-
-```python
-# tests/test_strategy.py
-def test_signals_length(strategy, prices):
-    sig = strategy.signals(prices)
-    assert len(sig) == len(prices)
-```
-
-```python
-# tests/test_broker.py
-import pytest
-
-def test_buy_and_sell_updates_cash_and_pos(broker):
-    broker.market_order("BUY", 2, 10.0)
-    assert (broker.position, broker.cash) == (2, 1000 - 20.0)
-
-def test_rejects_bad_orders(broker):
-    with pytest.raises(ValueError):
-        broker.market_order("BUY", 0, 10)
-```
-
-```python
-# tests/test_engine.py
-from unittest.mock import MagicMock
-from backtester.engine import Backtester
-
-def test_engine_uses_tminus1_signal(prices, broker, strategy, monkeypatch):
-    # Force exactly one buy at t=10 by controlling signals
-    fake_strategy = MagicMock()
-    fake_strategy.signals.return_value = prices*0
-    fake_strategy.signals.return_value.iloc[9] = 1  # triggers buy at t=10
-    bt = Backtester(fake_strategy, broker)
-    eq = bt.run(prices)
-    assert broker.position == 1
-    assert broker.cash == 1000 - float(prices.iloc[10])
-```
-
-> Use `unittest.mock` / `MagicMock` and monkey-patching sparingly to isolate external dependencies; test your core logic directly.
-
----
-
-## 🧩 Part 4 — Coverage & Reporting (30–45 min)
-
-Run locally:
-
-```bash
-coverage run -m pytest -q
-coverage report -m
-coverage html
-```
-
-CI must **fail** if coverage < 90%:
-
-```bash
-coverage report --fail-under=90
-```
-
-Commit the HTML report (optional) or attach screenshots in the README.
-
----
-
-## ✅ Deliverables (Checklist)
-
-* [ ] Code for `PriceLoader`, `Strategy`, `Broker`, `Backtester` (minimal but clean).
-* [ ] `tests/` with comprehensive unit tests and fixtures.
-* [ ] Passing GitHub Actions run (link/screenshot).
-* [ ] Coverage report showing **≥ 90%**.
-* [ ] `README.md` with design notes, how to run tests, CI status, coverage summary.
-
----
-
-## 🧮 Grading Rubric (100 pts)
-
-| Category                     | Points | Description                                                         |
-| ---------------------------- | ------ | ------------------------------------------------------------------- |
-| Unit tests quality & breadth | 40     | Clear, isolated, meaningful assertions; good edge-case coverage.    |
-| Coverage                     | 20     | ≥90% lines (18 pts for 90–94, 20 pts for ≥95).                      |
-| CI integration               | 20     | Workflow runs on push/PR, fails on low coverage, fast and reliable. |
-| Design & clarity             | 10     | Simple, readable code; minimal but sensible abstractions.           |
-| Determinism & speed          | 10     | No network, seeded/synthetic data, suite < 60s.                     |
-
----
-
-## 💡 Bonus Ideas (Optional)
-
-* Branch coverage gate (`--fail-under=90 --include=backtester/* --branch`).
-* Lint/type checks in CI (`ruff`, `mypy`) as separate jobs.
-* Mocked “order rejection” path and retry/backoff test.
-
----
-
-## 🧠 Notes for Students
-
-* Real data is allowed, but **all tests must run offline** using generated or cached data (prefer generated to keep CI fast).
-* Keep strategies simple; **depth of testing > strategy creativity.**
-* Commit early; use PRs to watch CI feedback like a real quant workflow.
+By adhering to these standards, the project maintains a robust, maintainable codebase with reliable testing and continuous integration practices.
