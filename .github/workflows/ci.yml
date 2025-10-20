@@ -1,14 +1,11 @@
 # .github/workflows/ci.yml
 name: CI Pipeline
-on: 
-  push:
-    paths:
-      - 'backtester/**'
-      - 'tests/**'
+
+on:
+  push:    
   pull_request:
-    paths:
-      - 'backtester/**'
-      - 'tests/**'
+  workflow_dispatch:  
+
 jobs:
   test:
     runs-on: ubuntu-latest
