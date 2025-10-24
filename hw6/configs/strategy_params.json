@@ -1,0 +1,10 @@
+{
+  "MeanReversionStrategy": {
+    "lookback_window": 20,
+    "threshold": 0.02
+  },
+  "BreakoutStrategy": {
+    "lookback_window": 15,
+    "threshold": 0.03
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "log_level": "INFO",
+  "data_path": "./data/",
+  "report_path": "./reports/",
+  "default_strategy": "MeanReversionStrategy"
+}
