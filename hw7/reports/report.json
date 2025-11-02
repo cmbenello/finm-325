@@ -1,0 +1,76 @@
+{
+  "symbol": "AAPL",
+  "charts": {
+    "price_ma20": "reports/AAPL_price_ma20.png",
+    "sharpe20": "reports/AAPL_sharpe20.png"
+  },
+  "performance_csv": "reports/performance_summary.csv",
+  "times_basic_png": "reports/times_basic.png",
+  "times_parallel_png": "reports/times_parallel.png",
+  "summary_table": [
+    {
+      "category": "ingest",
+      "lib": "pandas",
+      "time_s": 0.1502295839600265,
+      "rss_delta_mb": 83.71875,
+      "cpu_time_s": null,
+      "notes": "load"
+    },
+    {
+      "category": "ingest",
+      "lib": "polars",
+      "time_s": 0.020741499960422516,
+      "rss_delta_mb": 49.4375,
+      "cpu_time_s": null,
+      "notes": "load"
+    },
+    {
+      "category": "rolling",
+      "lib": "pandas",
+      "time_s": 0.07345158304087818,
+      "rss_delta_mb": 29.171875,
+      "cpu_time_s": 0.07408112,
+      "notes": "ma/std/sharpe"
+    },
+    {
+      "category": "rolling",
+      "lib": "polars",
+      "time_s": 0.03184891608543694,
+      "rss_delta_mb": 62.15625,
+      "cpu_time_s": 0.0779375200000001,
+      "notes": "ma/std/sharpe"
+    },
+    {
+      "category": "parallel",
+      "lib": "pandas-threaded",
+      "time_s": 0.054310166044160724,
+      "rss_delta_mb": 47.609375,
+      "cpu_time_s": 0.07400395199999998,
+      "notes": "per symbol"
+    },
+    {
+      "category": "parallel",
+      "lib": "pandas-multiproc",
+      "time_s": 0.780803749919869,
+      "rss_delta_mb": -11.71875,
+      "cpu_time_s": 0.07440939199999996,
+      "notes": "per symbol"
+    },
+    {
+      "category": "parallel",
+      "lib": "polars-threaded",
+      "time_s": 0.024361500050872564,
+      "rss_delta_mb": 47.8125,
+      "cpu_time_s": 0.10086510399999993,
+      "notes": "per symbol"
+    },
+    {
+      "category": "parallel",
+      "lib": "polars-multiproc",
+      "time_s": 1.1615844579646364,
+      "rss_delta_mb": 102.828125,
+      "cpu_time_s": 0.5409616159999999,
+      "notes": "per symbol"
+    }
+  ]
+}

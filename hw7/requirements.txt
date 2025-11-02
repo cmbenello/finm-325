@@ -1,0 +1,15 @@
+# pandas/polars for analytics
+pandas>=2.2.2
+polars>=1.21.0
+
+# numpy for math ops
+numpy>=1.26.4
+
+# matplotlib for plotting
+matplotlib>=3.9.2
+
+# psutil for memory tracking
+psutil>=6.0.0
+
+# pytest for unit testing
+pytest>=8.3.3
