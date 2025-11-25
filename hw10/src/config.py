@@ -5,8 +5,8 @@ ASSET_TYPE = "equity"          # "equity" or "crypto"
 TICKER = "AAPL"
 
 # yfinance intraday settings:
-DATA_PERIOD = "1y"             # last 7 days
-DATA_INTERVAL = "1m"           # 1-minute bars
+DATA_PERIOD = "5y"             # last 7 days
+DATA_INTERVAL = "1d"           # 1-minute bars
 
 # ---------- Paths ----------
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
