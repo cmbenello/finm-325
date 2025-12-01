@@ -260,6 +260,7 @@ class AlpacaPortfolioTrader:
         timeframe: str = TIMEFRAME,
         poll_interval_sec: int = 60,
         min_trade_notional: float = 10.0,
+        rebalance_on_start: bool = True,
     ) -> None:
         if not API_KEY_ID or not API_SECRET_KEY:
             raise RuntimeError("Set ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY.")
@@ -277,9 +278,21 @@ class AlpacaPortfolioTrader:
         self.timeframe = timeframe
         self.poll_interval_sec = poll_interval_sec
         self.min_trade_notional = float(min_trade_notional)
+        self.rebalance_on_start = rebalance_on_start
 
         self._bars: Dict[str, pd.DataFrame] = {}
         self._position_cache: Dict[str, float] = {}
+        self._did_initial_rebalance = False
+
+    @staticmethod
+    def _symbol_aliases(symbol: str) -> List[str]:
+        """
+        Return normalized symbol aliases so that BTC/USD and BTCUSD resolve
+        to the same position entry.
+        """
+        sym = symbol.upper()
+        aliases = {sym, sym.replace("/", "")}
+        return list(aliases)
 
     @staticmethod
     def _normalize_bars_df(raw_df: pd.DataFrame) -> pd.DataFrame:
@@ -388,14 +401,19 @@ class AlpacaPortfolioTrader:
                 qty = float(p.qty)
                 if getattr(p, "side", "").lower() == "short":
                     qty = -qty
-                positions[p.symbol] = qty
+                for alias in self._symbol_aliases(p.symbol):
+                    positions[alias] = qty
         except Exception as exc:
             print(f"Error fetching positions: {exc}")
         self._position_cache = positions
 
-    def _get_account_equity(self) -> float:
+    def _get_account_snapshot(self) -> Dict[str, float]:
         account = self.api.get_account()
-        return float(account.equity)
+        return {
+            "equity": float(account.equity),
+            "cash": float(account.cash),
+            "buying_power": float(getattr(account, "buying_power", account.cash)),
+        }
 
     @staticmethod
     def _ensure_features(df: pd.DataFrame, strategies: Sequence[object]) -> pd.DataFrame:
@@ -449,7 +467,11 @@ class AlpacaPortfolioTrader:
 
         return combined
 
-    def _desired_shares(self, leg: PortfolioLegConfig, account_equity: float) -> float | None:
+    def _desired_shares(
+        self,
+        leg: PortfolioLegConfig,
+        account: Dict[str, float],
+    ) -> float | None:
         bars = self._bars.get(leg.symbol)
         if bars is None or bars.empty:
             return None
@@ -465,9 +487,40 @@ class AlpacaPortfolioTrader:
         if last_price <= 0:
             return 0.0
 
-        target_notional = account_equity * abs(leg.allocation) * direction
+        equity_target = account["equity"] * abs(leg.allocation)
+        cash_available = account["cash"]
+        bp_available = account["buying_power"]
+
+        buffer = 0.98  # avoid edge rejections due to rounding
+
+        if direction > 0:
+            # Longs: crypto is cash-only; equities can tap buying power
+            notional_cap = cash_available if leg.asset_type.lower() == "crypto" else bp_available
+        else:
+            # Shorts rely on buying power
+            notional_cap = bp_available
+
+        target_notional = min(equity_target, notional_cap * buffer) * direction
         desired_shares = target_notional / last_price
         return desired_shares
+
+    def _rebalance_once(self, account: Dict[str, float]) -> None:
+        """
+        One-off rebalance to target allocations using current positions.
+        """
+        self._refresh_positions_cache()
+        for leg in self.legs:
+            self._update_bars_for_leg(leg)
+            desired = self._desired_shares(leg, account)
+            if desired is None:
+                continue
+            current = self._position_cache.get(leg.symbol) or self._position_cache.get(
+                leg.symbol.replace("/", "")
+            ) or 0.0
+            delta = desired - current
+            if abs(delta) < 1e-6:
+                continue
+            self._submit_order(leg, delta)
 
     def _submit_order(self, leg: PortfolioLegConfig, delta_shares: float) -> None:
         if abs(delta_shares) < 1e-6:
@@ -507,15 +560,20 @@ class AlpacaPortfolioTrader:
         for leg in self.legs:
             self._update_bars_for_leg(leg)
 
+        if self.rebalance_on_start:
+            account = self._get_account_snapshot()
+            self._rebalance_once(account)
+            self._did_initial_rebalance = True
+
         while True:
             try:
-                account_equity = self._get_account_equity()
+                account = self._get_account_snapshot()
                 self._refresh_positions_cache()
 
                 for leg in self.legs:
                     self._update_bars_for_leg(leg)
 
-                    desired = self._desired_shares(leg, account_equity)
+                    desired = self._desired_shares(leg, account)
                     if desired is None:
                         need = self._min_history_needed(leg)
                         have = len(self._bars.get(leg.symbol, []))
