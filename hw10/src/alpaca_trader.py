@@ -407,6 +407,16 @@ class AlpacaPortfolioTrader:
             print(f"Error fetching positions: {exc}")
         self._position_cache = positions
 
+    def _get_cached_position(self, leg: PortfolioLegConfig) -> float:
+        """
+        Return cached position size for a leg, honoring symbol aliases.
+        """
+        return (
+            self._position_cache.get(leg.symbol)
+            or self._position_cache.get(leg.symbol.replace("/", ""))
+            or 0.0
+        )
+
     def _get_account_snapshot(self) -> Dict[str, float]:
         account = self.api.get_account()
         return {
@@ -514,9 +524,7 @@ class AlpacaPortfolioTrader:
             desired = self._desired_shares(leg, account)
             if desired is None:
                 continue
-            current = self._position_cache.get(leg.symbol) or self._position_cache.get(
-                leg.symbol.replace("/", "")
-            ) or 0.0
+            current = self._get_cached_position(leg)
             delta = desired - current
             if abs(delta) < 1e-6:
                 continue
@@ -590,7 +598,7 @@ class AlpacaPortfolioTrader:
                         print(f"[{leg.symbol}] Waiting for data ({have}/{need} bars)...")
                         continue
 
-                    current = self._position_cache.get(leg.symbol, 0.0)
+                    current = self._get_cached_position(leg)
                     delta = desired - current
 
                     print(
