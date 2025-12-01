@@ -547,8 +547,11 @@ class AlpacaPortfolioTrader:
                 qty = min(qty, max(0.0, abs(current)))
             qty = max(0.0, np.floor((qty - 1e-7) / precision) * precision)
         else:
-            if side == "sell":
-                qty = min(qty, int(abs(current)))
+            # Enforce one-sided constraints but still allow opening shorts when permitted.
+            if leg.short_only and side == "buy":
+                qty = min(qty, int(np.floor(max(0.0, -current))))
+            elif leg.long_only and side == "sell":
+                qty = min(qty, int(np.floor(max(0.0, current))))
             else:
                 qty = int(np.floor(qty))
 
