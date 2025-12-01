@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import List, Dict, Any
 
 import pandas as pd
 
+from .config import PROCESSED_DATA_PATH
 from .market_data_gateway import MarketDataGateway
 from .strategy import MovingAverageCrossoverStrategy
 from .order_book import OrderBook
@@ -50,16 +51,36 @@ class Backtester:
     strategy: MovingAverageCrossoverStrategy = field(
         default_factory=MovingAverageCrossoverStrategy
     )
+    data_path: Path | None = None
     om_config: OrderManagerConfig = field(default_factory=OrderManagerConfig)
     order_log_path: Path = field(default_factory=lambda: Path("logs") / "orders_backtest.csv")
 
     def run(self) -> BacktestResult:
         # ---- Set up components ----
-        md_gateway = MarketDataGateway()
+        md_gateway = MarketDataGateway(data_path=self.data_path or PROCESSED_DATA_PATH)
         df = md_gateway.get_dataframe()  # full DataFrame of bars
+        if df.empty:
+            raise ValueError("No market data available for backtest.")
+
+        first_price = float(df["Close"].iloc[0])
+
+        # Size positions so that a +1/-1 signal corresponds to being fully
+        # invested (or fully short) with the initial capital.
+        target_shares = self.om_config.initial_capital / first_price
+
+        # Loosen position limits automatically if the configured limits are too small
+        # for a fully invested position in this dataset.
+        local_config = replace(self.om_config)
+        if local_config.max_long_position < target_shares:
+            adjusted_limit = target_shares * 1.2
+            local_config = replace(
+                local_config,
+                max_long_position=adjusted_limit,
+                max_short_position=-adjusted_limit,
+            )
 
         order_book = OrderBook()
-        om = OrderManager(config=self.om_config)
+        om = OrderManager(config=local_config)
         matching_engine = MatchingEngine(order_book=order_book)
 
         self.order_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -85,7 +106,8 @@ class Backtester:
             price = float(row["Close"])
 
             # Desired position from strategy at this timestamp
-            desired_position = float(signals_df.loc[ts, self.strategy.position_col])
+            raw_position = float(signals_df.loc[ts, self.strategy.position_col])
+            desired_position = raw_position * target_shares
 
             delta = desired_position - current_position
 

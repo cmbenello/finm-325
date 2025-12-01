@@ -1,15 +1,74 @@
 # src/run_alpaca_paper.py
 
-from .alpaca_trader import AlpacaPaperTrader
+from .alpaca_trader import AlpacaPortfolioTrader, PortfolioLegConfig
+from .strategy import (
+    AggressiveMomentumStrategy,
+    MeanReversionStrategy,
+    MomentumStrategy,
+    VWAPReversionStrategy,
+)
 
 
 def main():
-    trader = AlpacaPaperTrader(
-        symbol="AAPL",
+    """
+    Portfolio: BTCUSD long, NVDA long, MRNA short, QQQ long.
+    Allocations are sized off account equity (e.g., 0.40 = 40% of equity).
+    """
+    portfolio = [
+        PortfolioLegConfig(
+            symbol="BTC/USD",
+            allocation=0.40,
+            strategies=[
+                AggressiveMomentumStrategy(short_window=5, long_window=20),
+                VWAPReversionStrategy(lookback=30, z_entry=1.0),
+            ],
+            asset_type="crypto",
+            feed="us",
+            lookback_bars=720,
+            long_only=True,
+        ),
+        PortfolioLegConfig(
+            symbol="NVDA",
+            allocation=0.25,
+            strategies=[
+                AggressiveMomentumStrategy(short_window=5, long_window=20),
+                VWAPReversionStrategy(lookback=30, z_entry=1.0),
+            ],
+            asset_type="equity",
+            feed="iex",
+            lookback_bars=720,
+            long_only=True,
+        ),
+        PortfolioLegConfig(
+            symbol="MRNA",
+            allocation=0.15,
+            strategies=[
+                MeanReversionStrategy(lookback=20, z_entry=1.0),
+            ],
+            asset_type="equity",
+            feed="iex",
+            lookback_bars=720,
+            short_only=True,
+        ),
+        PortfolioLegConfig(
+            symbol="TQQQ",
+            allocation=0.20,
+            strategies=[
+                MomentumStrategy(),
+                VWAPReversionStrategy(lookback=30, z_entry=1.1),
+            ],
+            asset_type="equity",
+            feed="iex",
+            lookback_bars=720,
+            long_only=True,
+        ),
+    ]
+
+    trader = AlpacaPortfolioTrader(
+        legs=portfolio,
         timeframe="1Min",
-        lookback_bars=500,
-        target_position_size=10,
         poll_interval_sec=60,
+        min_trade_notional=25.0,
     )
     trader.run()
 

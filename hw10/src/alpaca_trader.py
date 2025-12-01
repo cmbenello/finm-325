@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Dict, List, Sequence
 
 import alpaca_trade_api as tradeapi
 import numpy as np
 import pandas as pd
 
 from .alpaca_settings import API_KEY_ID, API_SECRET_KEY, BASE_URL, SYMBOL, TIMEFRAME
-from .strategy import MovingAverageCrossoverStrategy
-from .config import SHORT_MA_WINDOW, LONG_MA_WINDOW
+from .config import LONG_MA_COL, LONG_MA_WINDOW, SHORT_MA_COL, SHORT_MA_WINDOW
+from .strategy import (
+    AggressiveMomentumStrategy,
+    MeanReversionStrategy,
+    MomentumStrategy,
+    MovingAverageCrossoverStrategy,
+    VWAPReversionStrategy,
+)
 
 
 class AlpacaPaperTrader:
@@ -147,7 +155,10 @@ class AlpacaPaperTrader:
         positions = self.api.list_positions()
         for p in positions:
             if p.symbol == self.symbol:
-                return int(float(p.qty))
+                qty = float(p.qty)
+                if getattr(p, "side", "").lower() == "short":
+                    qty = -qty
+                return int(qty)
         return 0
 
     def _compute_desired_position(self) -> int:
@@ -213,5 +224,315 @@ class AlpacaPaperTrader:
 
             except Exception as e:
                 print(f"Error in trading loop: {e}")
+
+            time.sleep(self.poll_interval_sec)
+
+
+@dataclass
+class PortfolioLegConfig:
+    """
+    Configuration for a single ticker inside a multi-asset Alpaca paper
+    trading loop.
+    """
+
+    symbol: str
+    allocation: float
+    strategies: Sequence[object]
+    lookback_bars: int = 500
+    long_only: bool = False
+    short_only: bool = False
+    asset_type: str = "equity"  # "equity" or "crypto"
+    feed: str | None = None     # e.g., "iex" for equities, "us" for crypto
+
+    def __post_init__(self) -> None:
+        self.symbol = self.symbol.upper()
+
+
+class AlpacaPortfolioTrader:
+    """
+    Trade a portfolio of symbols on Alpaca paper accounts with per-ticker
+    strategy assignments and target allocations sized off account equity.
+    """
+
+    def __init__(
+        self,
+        legs: Sequence[PortfolioLegConfig],
+        timeframe: str = TIMEFRAME,
+        poll_interval_sec: int = 60,
+        min_trade_notional: float = 10.0,
+    ) -> None:
+        if not API_KEY_ID or not API_SECRET_KEY:
+            raise RuntimeError("Set ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY.")
+        if not legs:
+            raise ValueError("Provide at least one portfolio leg.")
+
+        self.api: tradeapi.REST = tradeapi.REST(
+            API_KEY_ID,
+            API_SECRET_KEY,
+            BASE_URL,
+            api_version="v2",
+        )
+
+        self.legs = list(legs)
+        self.timeframe = timeframe
+        self.poll_interval_sec = poll_interval_sec
+        self.min_trade_notional = float(min_trade_notional)
+
+        self._bars: Dict[str, pd.DataFrame] = {}
+        self._position_cache: Dict[str, float] = {}
+
+    @staticmethod
+    def _normalize_bars_df(raw_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Normalize the Alpaca bars DataFrame to a single-index datetime frame
+        with standardized OHLCV column names.
+        """
+        if raw_df is None or raw_df.empty:
+            return pd.DataFrame()
+
+        df = raw_df.copy()
+
+        # Handle possible MultiIndex (symbol, timestamp)
+        if isinstance(df.index, pd.MultiIndex):
+            ts_index = df.index.get_level_values(-1)
+        else:
+            ts_index = df.index
+
+        if "timestamp" in df.columns:
+            ts_index = df["timestamp"]
+            df = df.drop(columns=["timestamp"], errors="ignore")
+
+        df.index = pd.to_datetime(ts_index, utc=True).tz_convert(None)
+
+        df.columns = [c.lower() for c in df.columns]
+        rename_map = {
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume",
+        }
+        df = df.rename(columns=rename_map)
+
+        keep = [col for col in ["Open", "High", "Low", "Close", "Volume"] if col in df.columns]
+        df = df[keep]
+
+        df.index.name = "Datetime"
+        return df.sort_index()
+
+    def _fetch_bars(
+        self,
+        leg: PortfolioLegConfig,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> pd.DataFrame:
+        end = end or datetime.utcnow()
+        start = start or (end - timedelta(minutes=leg.lookback_bars + 5))
+
+        start_iso = start.isoformat() + "Z"
+        end_iso = end.isoformat() + "Z"
+
+        try:
+            if leg.asset_type.lower() == "crypto":
+                bars = self.api.get_crypto_bars(
+                    leg.symbol,
+                    self.timeframe,
+                    start=start_iso,
+                    end=end_iso,
+                )
+            else:
+                feed = leg.feed or "iex"
+                bars = self.api.get_bars(
+                    leg.symbol,
+                    self.timeframe,
+                    start=start_iso,
+                    end=end_iso,
+                    feed=feed,
+                )
+        except Exception as exc:
+            print(f"[{leg.symbol}] Error fetching bars: {exc}")
+            return pd.DataFrame()
+
+        df = getattr(bars, "df", None)
+        return self._normalize_bars_df(df)
+
+    def _update_bars_for_leg(self, leg: PortfolioLegConfig) -> None:
+        """
+        Maintain a rolling window of bars for a single leg.
+        """
+        current = self._bars.get(leg.symbol)
+        if current is None or current.empty:
+            df = self._fetch_bars(leg)
+            if df is None or df.empty:
+                return
+            self._bars[leg.symbol] = df.tail(leg.lookback_bars)
+            return
+
+        last_ts = current.index.max()
+        if pd.isna(last_ts):
+            df_new = self._fetch_bars(leg)
+        else:
+            df_new = self._fetch_bars(leg, start=last_ts + timedelta(seconds=1))
+
+        if df_new is None or df_new.empty:
+            return
+
+        combined = pd.concat([current, df_new], axis=0)
+        combined = combined[~combined.index.duplicated(keep="last")]
+        self._bars[leg.symbol] = combined.tail(leg.lookback_bars)
+
+    def _refresh_positions_cache(self) -> None:
+        positions: Dict[str, float] = {}
+        try:
+            for p in self.api.list_positions():
+                qty = float(p.qty)
+                if getattr(p, "side", "").lower() == "short":
+                    qty = -qty
+                positions[p.symbol] = qty
+        except Exception as exc:
+            print(f"Error fetching positions: {exc}")
+        self._position_cache = positions
+
+    def _get_account_equity(self) -> float:
+        account = self.api.get_account()
+        return float(account.equity)
+
+    @staticmethod
+    def _ensure_features(df: pd.DataFrame, strategies: Sequence[object]) -> pd.DataFrame:
+        """
+        Add any columns required by the configured strategies (e.g., MA columns).
+        """
+        out = df.copy()
+
+        needs_ma = any(
+            isinstance(s, (MovingAverageCrossoverStrategy, MomentumStrategy))
+            for s in strategies
+        )
+        if needs_ma:
+            out[SHORT_MA_COL] = out["Close"].rolling(SHORT_MA_WINDOW, min_periods=1).mean()
+            out[LONG_MA_COL] = out["Close"].rolling(LONG_MA_WINDOW, min_periods=1).mean()
+
+        return out
+
+    @staticmethod
+    def _min_history_needed(leg: PortfolioLegConfig) -> int:
+        windows: List[int] = [SHORT_MA_WINDOW, LONG_MA_WINDOW, 10]
+        for strat in leg.strategies:
+            if hasattr(strat, "long_window"):
+                windows.append(int(getattr(strat, "long_window")))
+            if hasattr(strat, "lookback"):
+                windows.append(int(getattr(strat, "lookback")))
+        return max(windows)
+
+    def _combine_strategy_signals(self, leg: PortfolioLegConfig, df: pd.DataFrame) -> float:
+        prepared = self._ensure_features(df, leg.strategies)
+        positions: List[float] = []
+
+        for strat in leg.strategies:
+            try:
+                signals = strat.generate_signals(prepared)
+                positions.append(float(signals[strat.position_col].iloc[-1]))
+            except Exception as exc:
+                name = getattr(strat, "name", strat.__class__.__name__)
+                print(f"[{leg.symbol}] {name} signal error: {exc}")
+
+        if not positions:
+            return 0.0
+
+        avg_pos = float(np.mean(positions))
+        combined = float(np.sign(avg_pos))
+
+        if leg.long_only:
+            combined = max(0.0, combined)
+        if leg.short_only:
+            combined = min(0.0, combined)
+
+        return combined
+
+    def _desired_shares(self, leg: PortfolioLegConfig, account_equity: float) -> float | None:
+        bars = self._bars.get(leg.symbol)
+        if bars is None or bars.empty:
+            return None
+
+        if len(bars) < self._min_history_needed(leg):
+            return None
+
+        direction = self._combine_strategy_signals(leg, bars)
+        if direction == 0:
+            return 0.0
+
+        last_price = float(bars["Close"].iloc[-1])
+        if last_price <= 0:
+            return 0.0
+
+        target_notional = account_equity * abs(leg.allocation) * direction
+        desired_shares = target_notional / last_price
+        return desired_shares
+
+    def _submit_order(self, leg: PortfolioLegConfig, delta_shares: float) -> None:
+        if abs(delta_shares) < 1e-6:
+            return
+
+        side = "buy" if delta_shares > 0 else "sell"
+        qty = abs(delta_shares)
+
+        if leg.asset_type.lower() == "crypto":
+            qty = round(qty, 6)
+        else:
+            qty = int(np.floor(qty))
+
+        if qty <= 0:
+            return
+
+        bars = self._bars.get(leg.symbol)
+        notional = None
+        if bars is not None and not bars.empty:
+            last_price = float(bars["Close"].iloc[-1])
+            notional = last_price * qty
+
+        if notional is not None and notional < self.min_trade_notional:
+            return
+
+        print(f"Submitting {side} {qty} {leg.symbol}")
+        self.api.submit_order(
+            symbol=leg.symbol,
+            qty=qty,
+            side=side,
+            type="market",
+            time_in_force="gtc",
+        )
+
+    def run(self) -> None:
+        print("Bootstrapping historical bars for portfolio...")
+        for leg in self.legs:
+            self._update_bars_for_leg(leg)
+
+        while True:
+            try:
+                account_equity = self._get_account_equity()
+                self._refresh_positions_cache()
+
+                for leg in self.legs:
+                    self._update_bars_for_leg(leg)
+
+                    desired = self._desired_shares(leg, account_equity)
+                    if desired is None:
+                        need = self._min_history_needed(leg)
+                        have = len(self._bars.get(leg.symbol, []))
+                        print(f"[{leg.symbol}] Waiting for data ({have}/{need} bars)...")
+                        continue
+
+                    current = self._position_cache.get(leg.symbol, 0.0)
+                    delta = desired - current
+
+                    print(
+                        f"{datetime.utcnow().isoformat()} "
+                        f"[{leg.symbol}] current={current:.4f} desired={desired:.4f} delta={delta:.4f}"
+                    )
+
+                    self._submit_order(leg, delta)
+
+            except Exception as exc:
+                print(f"Error in portfolio loop: {exc}")
 
             time.sleep(self.poll_interval_sec)

@@ -57,13 +57,12 @@ def download_and_save_raw_data() -> None:
     - Download data
     - Save to CSV at RAW_DATA_PATH
     """
-    if ASSET_TYPE != "equity":
-        raise NotImplementedError(
-            "Only equity via yfinance is implemented in Part 1. "
-            "Crypto (Binance) can be added later."
-        )
+    # Support both equities and crypto (e.g., BTC-USD) via yfinance
+    if ASSET_TYPE in ("equity", "crypto"):
+        df = download_equity_data()
+    else:
+        raise NotImplementedError(f"Unsupported ASSET_TYPE: {ASSET_TYPE}")
 
-    df = download_equity_data()
     df.to_csv(RAW_DATA_PATH, index=False)
     print(f"Saved raw market data to {RAW_DATA_PATH}")
 

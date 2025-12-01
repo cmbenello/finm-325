@@ -11,7 +11,10 @@ from .config import (
     SHORT_MA_COL,
     LONG_MA_COL,
     VOL_COL,
+    RAW_DATA_DIR,
+    PROCESSED_DATA_DIR,
 )
+from pathlib import Path
 
 
 def load_raw_data(path=RAW_DATA_PATH) -> pd.DataFrame:
@@ -64,28 +67,31 @@ def clean_and_add_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_clean_and_save(
-    raw_path: str | None = None,
-    processed_path: str | None = None,
-) -> pd.DataFrame:
+def load_clean_and_save_all() -> None:
     """
-    High-level function for Part 1, Step 2:
-      - Load raw CSV
-      - Clean and add features
-      - Save processed CSV
-      - Return cleaned DataFrame
+    Clean ALL raw CSV files found in RAW_DATA_DIR and save each
+    cleaned file to PROCESSED_DATA_DIR using the same filename
+    but with '_clean' appended before '.csv'.
     """
-    if raw_path is None:
-        raw_path = RAW_DATA_PATH
-    if processed_path is None:
-        processed_path = PROCESSED_DATA_PATH
+    raw_files = sorted(Path(RAW_DATA_DIR).glob("*.csv"))
+    if not raw_files:
+        print(f"No raw CSV files found in {RAW_DATA_DIR}")
+        return
 
-    df_raw = load_raw_data(raw_path)
-    df_clean = clean_and_add_features(df_raw)
-    df_clean.to_csv(processed_path)
-    print(f"Saved cleaned data with features to {processed_path}")
-    return df_clean
+    for raw_path in raw_files:
+        try:
+            df_raw = load_raw_data(raw_path)
+            df_clean = clean_and_add_features(df_raw)
+
+            # Construct output filename
+            stem = raw_path.stem
+            processed_path = Path(PROCESSED_DATA_DIR) / f"{stem.replace('_raw','')}_clean.csv"
+
+            df_clean.to_csv(processed_path)
+            print(f"Saved cleaned data with features to {processed_path}")
+        except Exception as e:
+            print(f"Failed to clean {raw_path}: {e}")
 
 
 if __name__ == "__main__":
-    load_clean_and_save()
+    load_clean_and_save_all()
