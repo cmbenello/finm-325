@@ -528,11 +528,21 @@ class AlpacaPortfolioTrader:
 
         side = "buy" if delta_shares > 0 else "sell"
         qty = abs(delta_shares)
+        current = self._position_cache.get(leg.symbol) or self._position_cache.get(
+            leg.symbol.replace("/", "")
+        ) or 0.0
 
         if leg.asset_type.lower() == "crypto":
-            qty = round(qty, 6)
+            # Floor to 6 decimals and avoid overselling tiny dust amounts
+            precision = 1e-6
+            if side == "sell":
+                qty = min(qty, max(0.0, abs(current)))
+            qty = max(0.0, np.floor((qty - 1e-7) / precision) * precision)
         else:
-            qty = int(np.floor(qty))
+            if side == "sell":
+                qty = min(qty, int(abs(current)))
+            else:
+                qty = int(np.floor(qty))
 
         if qty <= 0:
             return
