@@ -398,9 +398,19 @@ class AlpacaPortfolioTrader:
         positions: Dict[str, float] = {}
         try:
             for p in self.api.list_positions():
-                qty = float(p.qty)
-                if getattr(p, "side", "").lower() == "short":
+                raw_qty = float(p.qty)
+                side = getattr(p, "side", "").lower()
+                mkt_val = float(getattr(p, "market_value", 0) or 0)
+
+                qty = abs(raw_qty)
+                if side == "short":
                     qty = -qty
+                elif side == "long":
+                    qty = qty
+                elif mkt_val < 0:
+                    # Fallback for cases where side is missing but market value is negative
+                    qty = -qty
+
                 for alias in self._symbol_aliases(p.symbol):
                     positions[alias] = qty
         except Exception as exc:
