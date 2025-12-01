@@ -11,13 +11,15 @@ from .strategy import (
 
 def main():
     """
-    Portfolio: BTCUSD long, NVDA long, MRNA short, QQQ long.
+    Portfolio: BTCUSD short, NVDA overweight long, MRNA short, TQQQ long.
+    Net short tilt (55% short, 45% long) with extra weight on NVDA and a
+    smaller BTC short sleeve.
     Allocations are sized off account equity (e.g., 0.40 = 40% of equity).
     """
     portfolio = [
         PortfolioLegConfig(
             symbol="BTC/USD",
-            allocation=0.40,
+            allocation=0.20,
             strategies=[
                 AggressiveMomentumStrategy(short_window=5, long_window=20),
                 VWAPReversionStrategy(lookback=30, z_entry=1.0),
@@ -25,11 +27,11 @@ def main():
             asset_type="crypto",
             feed="us",
             lookback_bars=720,
-            long_only=True,
+            short_only=True,
         ),
         PortfolioLegConfig(
             symbol="NVDA",
-            allocation=0.25,
+            allocation=0.35,
             strategies=[
                 AggressiveMomentumStrategy(short_window=5, long_window=20),
                 VWAPReversionStrategy(lookback=30, z_entry=1.0),
@@ -41,7 +43,7 @@ def main():
         ),
         PortfolioLegConfig(
             symbol="MRNA",
-            allocation=0.15,
+            allocation=0.35,
             strategies=[
                 MeanReversionStrategy(lookback=20, z_entry=1.0),
             ],
@@ -52,7 +54,7 @@ def main():
         ),
         PortfolioLegConfig(
             symbol="TQQQ",
-            allocation=0.20,
+            allocation=0.10,
             strategies=[
                 MomentumStrategy(),
                 VWAPReversionStrategy(lookback=30, z_entry=1.1),
