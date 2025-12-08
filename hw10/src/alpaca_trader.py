@@ -546,6 +546,7 @@ class AlpacaPortfolioTrader:
 
         side = "buy" if delta_shares > 0 else "sell"
         qty = abs(delta_shares)
+        time_in_force = "gtc"
         current = self._position_cache.get(leg.symbol) or self._position_cache.get(
             leg.symbol.replace("/", "")
         ) or 0.0
@@ -562,6 +563,12 @@ class AlpacaPortfolioTrader:
                 qty = min(qty, int(np.floor(max(0.0, -current))))
             elif leg.long_only and side == "sell":
                 qty = min(qty, int(np.floor(max(0.0, current))))
+
+            # Alpaca only accepts fractional equity orders with DAY TIF.
+            fractional = abs(qty - round(qty)) > 1e-6
+            if fractional:
+                time_in_force = "day"
+                qty = float(np.round(qty, 3))
             else:
                 qty = int(np.floor(qty))
 
@@ -583,7 +590,7 @@ class AlpacaPortfolioTrader:
             qty=qty,
             side=side,
             type="market",
-            time_in_force="gtc",
+            time_in_force=time_in_force,
         )
 
     def run(self) -> None:

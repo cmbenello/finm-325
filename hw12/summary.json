@@ -1,0 +1,100 @@
+{
+  "training_config": {
+    "task": "classification",
+    "test_size": 0.2,
+    "cv_folds": 5
+  },
+  "signal_config": {
+    "buy_threshold": 0.55,
+    "sell_threshold": 0.45,
+    "allow_short": false
+  },
+  "backtest_config": {
+    "initial_capital": 100000.0,
+    "price_col": "close"
+  },
+  "model_metrics": {
+    "log_reg": {
+      "metrics": {
+        "accuracy": 0.9878048780487805,
+        "precision": 0.9834710743801653,
+        "recall": 0.9916666666666667,
+        "f1": 0.9875518672199171,
+        "confusion_matrix": [
+          [
+            124,
+            2
+          ],
+          [
+            1,
+            119
+          ]
+        ]
+      },
+      "cv_scores": [
+        0.975609756097561,
+        0.991869918699187,
+        0.9959349593495935,
+        0.959349593495935,
+        0.991869918699187
+      ]
+    },
+    "rf": {
+      "metrics": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "confusion_matrix": [
+          [
+            126,
+            0
+          ],
+          [
+            0,
+            120
+          ]
+        ]
+      },
+      "cv_scores": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  },
+  "backtests": {
+    "log_reg": {
+      "portfolio_summary": {
+        "label": "equal_weight_portfolio",
+        "cumulative_return": 1.232378156264255,
+        "annualised_return": 1.285842830848166,
+        "annualised_volatility": 0.03817432513570962,
+        "sharpe": 33.68344630263923,
+        "max_drawdown": 0.0,
+        "num_tickers": 5.0
+      },
+      "single_summary": null
+    },
+    "rf": {
+      "portfolio_summary": {
+        "label": "equal_weight_portfolio",
+        "cumulative_return": 1.2335644837318318,
+        "annualised_return": 1.28709243053699,
+        "annualised_volatility": 0.03817606017516754,
+        "sharpe": 33.71464799225688,
+        "max_drawdown": 0.0,
+        "num_tickers": 5.0
+      },
+      "single_summary": null
+    }
+  },
+  "figures": [
+    "equity_curves_portfolio.png",
+    "confusion_log_reg.png",
+    "confusion_rf.png",
+    "feature_importance_rf.png"
+  ]
+}
